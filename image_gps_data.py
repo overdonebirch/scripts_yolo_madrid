@@ -28,7 +28,7 @@ def dms_to_decimal(dms, ref):
 
 def extract_gps_data(exif_data):
     """
-    Extrae datos GPS de los metadatos EXIF
+    Extrae datos GPS de los metadatos EXIF incluyendo información detallada de altitud
     """
     gps_data = {}
     
@@ -49,15 +49,141 @@ def extract_gps_data(exif_data):
             lon = dms_to_decimal(gps_data['GPSLongitude'], gps_data['GPSLongitudeRef'])
             gps_data['DecimalLongitude'] = lon
             
-        # Extraer altitud si está disponible
+        # Extraer altitud GPS si está disponible
         if 'GPSAltitude' in gps_data:
             altitude = float(gps_data['GPSAltitude'])
             altitude_ref = gps_data.get('GPSAltitudeRef', 0)
             if altitude_ref == 1:  # Por debajo del nivel del mar
                 altitude = -altitude
             gps_data['DecimalAltitude'] = altitude
+            gps_data['AltitudeSource'] = 'GPS'
+        
+        # Información adicional de altitud y altura
+        altitude_info = {}
+        
+        # Diferencial geodésico (altura sobre el geoide)
+        if 'GPSHPositioningError' in gps_data:
+            altitude_info['HorizontalAccuracy'] = gps_data['GPSHPositioningError']
+        
+        # Información de DOP (Dilution of Precision)
+        if 'GPSDOP' in gps_data:
+            altitude_info['DOP'] = gps_data['GPSDOP']
+        
+        # Método de medición GPS
+        if 'GPSMeasureMode' in gps_data:
+            mode = gps_data['GPSMeasureMode']
+            if mode == '2':
+                altitude_info['GPSMode'] = '2D (sin altitud)'
+            elif mode == '3':
+                altitude_info['GPSMode'] = '3D (con altitud)'
+                
+        if altitude_info:
+            gps_data['AltitudeInfo'] = altitude_info
     
     return gps_data
+
+def extract_camera_height_data(exif_data):
+    """
+    Extrae información relacionada con la altura de la cámara desde diferentes fuentes
+    """
+    height_data = {
+        'sources_found': [],
+        'height_estimates': {},
+        'sensor_data': {},
+        'flight_data': {}  # Para drones
+    }
+    
+    # 1. Altitud GPS (altura sobre el nivel del mar)
+    if 'GPSInfo' in exif_data:
+        gps_info = exif_data['GPSInfo']
+        gps_tags = {}
+        for key in gps_info.keys():
+            name = GPSTAGS.get(key, key)
+            gps_tags[name] = gps_info[key]
+            
+        if 'GPSAltitude' in gps_tags:
+            altitude = float(gps_tags['GPSAltitude'])
+            altitude_ref = gps_tags.get('GPSAltitudeRef', 0)
+            if altitude_ref == 1:
+                altitude = -altitude
+            height_data['height_estimates']['gps_altitude'] = {
+                'value': altitude,
+                'unit': 'meters',
+                'description': 'Altura sobre el nivel del mar (GPS)',
+                'reference': 'Sea Level'
+            }
+            height_data['sources_found'].append('GPS Altitude')
+    
+    # 2. Datos de sensores barométricos (algunos smartphones y drones)
+    barometric_tags = ['BarometricPressure', 'Pressure', 'RelativeAltitude']
+    for tag in barometric_tags:
+        if tag in exif_data:
+            height_data['sensor_data']['barometric'] = {
+                'value': exif_data[tag],
+                'tag': tag,
+                'description': 'Datos de presión barométrica'
+            }
+            height_data['sources_found'].append('Barometric Sensor')
+    
+    # 3. Metadatos específicos de drones (DJI, etc.)
+    drone_tags = [
+        'DroneAltitude', 'FlightAltitude', 'RelativeAltitude', 
+        'AbsoluteAltitude', 'TakeOffAltitude', 'HomePointAltitude'
+    ]
+    for tag in drone_tags:
+        if tag in exif_data:
+            height_data['flight_data'][tag.lower()] = {
+                'value': exif_data[tag],
+                'description': f'Altura del drone: {tag}'
+            }
+            height_data['sources_found'].append(f'Drone Data ({tag})')
+    
+    # 4. Metadatos XMP (Adobe, DJI y otros fabricantes)
+    xmp_height_indicators = [
+        'CameraElevation', 'ShootingHeight', 'AltitudeAboveGround',
+        'HeightAboveTerrain', 'FlightHeight'
+    ]
+    for tag in xmp_height_indicators:
+        if tag in exif_data:
+            height_data['height_estimates'][tag.lower()] = {
+                'value': exif_data[tag],
+                'source': 'XMP Metadata',
+                'description': f'Altura de cámara: {tag}'
+            }
+            height_data['sources_found'].append(f'XMP ({tag})')
+    
+    # 5. Datos de acelerómetro/giroscopio (orientación que puede indicar altura relativa)
+    motion_tags = ['Accelerometer', 'Gyroscope', 'Orientation', 'CameraTilt']
+    for tag in motion_tags:
+        if tag in exif_data:
+            height_data['sensor_data']['motion'] = height_data['sensor_data'].get('motion', {})
+            height_data['sensor_data']['motion'][tag.lower()] = exif_data[tag]
+    
+    # 6. Detectar tipo de dispositivo para estimar altura típica
+    device_info = {}
+    if 'Make' in exif_data and 'Model' in exif_data:
+        make = exif_data['Make'].upper()
+        model = exif_data['Model'].upper()
+        
+        # Detectar drones
+        drone_brands = ['DJI', 'PARROT', 'AUTEL', 'SKYDIO', 'YUNEEC']
+        if any(brand in make for brand in drone_brands):
+            device_info['type'] = 'drone'
+            device_info['typical_height_range'] = '20-120 meters'
+            
+        # Detectar cámaras de acción en postes/palos
+        elif 'GOPRO' in make or 'INSTA360' in make or 'RICOH THETA' in model:
+            device_info['type'] = 'action_camera'
+            device_info['typical_height_range'] = '1.5-4 meters'
+            
+        # Detectar smartphones
+        elif any(brand in make for brand in ['APPLE', 'SAMSUNG', 'GOOGLE', 'HUAWEI']):
+            device_info['type'] = 'smartphone'
+            device_info['typical_height_range'] = '1.2-2 meters'
+            
+        height_data['device_info'] = device_info
+    
+    return height_data
 
 def extract_360_metadata(image_path):
     """
@@ -95,7 +221,7 @@ def extract_360_metadata(image_path):
 
 def extract_all_metadata(image_path):
     """
-    Extrae todos los metadatos disponibles de la imagen
+    Extrae todos los metadatos disponibles de la imagen incluyendo datos de altura
     """
     if not os.path.exists(image_path):
         raise FileNotFoundError(f"La imagen no existe: {image_path}")
@@ -108,7 +234,8 @@ def extract_all_metadata(image_path):
         'gps_coordinates': None,
         'exif_data': {},
         'metadata_360': {},
-        'gps_data': {}
+        'gps_data': {},
+        'camera_height_data': {}  # Nueva sección para datos de altura
     }
     
     try:
@@ -144,6 +271,9 @@ def extract_all_metadata(image_path):
                             'longitude': gps_data['DecimalLongitude'],
                             'altitude': gps_data.get('DecimalAltitude', None)
                         }
+                
+                # Extraer datos de altura de la cámara
+                metadata['camera_height_data'] = extract_camera_height_data(metadata['exif_data'])
             
             # Extraer metadatos específicos de 360
             metadata['metadata_360'] = extract_360_metadata(image_path)
@@ -156,7 +286,7 @@ def extract_all_metadata(image_path):
 
 def print_metadata_summary(metadata):
     """
-    Imprime un resumen de los metadatos extraídos
+    Imprime un resumen de los metadatos extraídos incluyendo información de altura
     """
     print("=" * 60)
     print("RESUMEN DE METADATOS DE IMAGEN 360")
@@ -183,7 +313,7 @@ def print_metadata_summary(metadata):
             print(f"Latitud: {coords['latitude']:.6f}")
             print(f"Longitud: {coords['longitude']:.6f}")
             if coords['altitude']:
-                print(f"Altitud: {coords['altitude']:.2f} metros")
+                print(f"Altitud GPS: {coords['altitude']:.2f} metros sobre el nivel del mar")
             
             # Generar enlace a Google Maps
             lat, lon = coords['latitude'], coords['longitude']
@@ -192,13 +322,78 @@ def print_metadata_summary(metadata):
     else:
         print("❌ La imagen NO contiene datos de geolocalización")
     
+    # Nueva sección: Información de altura de la cámara
+    print("\n--- INFORMACIÓN DE ALTURA DE LA CÁMARA ---")
+    height_data = metadata.get('camera_height_data', {})
+    
+    if height_data.get('sources_found'):
+        print("✅ Se encontraron datos de altura de la cámara:")
+        print(f"Fuentes detectadas: {', '.join(height_data['sources_found'])}")
+        
+        # Mostrar estimaciones de altura
+        if height_data.get('height_estimates'):
+            print("\n🔍 Estimaciones de altura:")
+            for key, data in height_data['height_estimates'].items():
+                print(f"  • {data['description']}: {data['value']} {data.get('unit', 'metros')}")
+                if 'reference' in data:
+                    print(f"    Referencia: {data['reference']}")
+        
+        # Mostrar datos de vuelo (drones)
+        if height_data.get('flight_data'):
+            print("\n🚁 Datos de vuelo de drone:")
+            for key, data in height_data['flight_data'].items():
+                print(f"  • {data['description']}: {data['value']}")
+        
+        # Mostrar datos de sensores
+        if height_data.get('sensor_data'):
+            print("\n📱 Datos de sensores:")
+            for sensor_type, data in height_data['sensor_data'].items():
+                if sensor_type == 'barometric':
+                    print(f"  • Sensor barométrico: {data['description']}")
+                elif sensor_type == 'motion':
+                    print(f"  • Sensores de movimiento: {list(data.keys())}")
+        
+        # Información del dispositivo
+        if height_data.get('device_info'):
+            device = height_data['device_info']
+            print(f"\n📷 Tipo de dispositivo detectado: {device.get('type', 'desconocido').upper()}")
+            if 'typical_height_range' in device:
+                print(f"   Rango típico de altura: {device['typical_height_range']}")
+                
+    else:
+        print("❌ No se encontraron datos específicos de altura de la cámara")
+        print("💡 Esto puede deberse a:")
+        print("   • La cámara no tiene sensores de altura")
+        print("   • Los metadatos no incluyen información de altura")
+        print("   • La imagen fue procesada y se perdieron los metadatos")
+        
+        # Sugerir altura basada en el dispositivo
+        if 'Make' in metadata.get('exif_data', {}):
+            make = metadata['exif_data']['Make'].upper()
+            model = metadata['exif_data'].get('Model', '').upper()
+            print(f"\n📱 Dispositivo: {make} {model}")
+            
+            if 'DJI' in make:
+                print("   Estimación: Probablemente tomada entre 20-120 metros (drone)")
+            elif 'GOPRO' in make or 'INSTA360' in make:
+                print("   Estimación: Probablemente tomada entre 1.5-4 metros (cámara de acción)")
+            elif any(brand in make for brand in ['APPLE', 'SAMSUNG', 'GOOGLE']):
+                print("   Estimación: Probablemente tomada entre 1.2-2 metros (smartphone)")
+    
     # Otros metadatos EXIF relevantes
     print("\n--- OTROS METADATOS RELEVANTES ---")
     relevant_tags = ['DateTime', 'Make', 'Model', 'Software', 'ImageDescription']
     for tag in relevant_tags:
         if tag in metadata['exif_data']:
             print(f"{tag}: {metadata['exif_data'][tag]}")
-
+    
+    # Consejos adicionales
+    print("\n--- CONSEJOS PARA OBTENER DATOS DE ALTURA ---")
+    print("💡 Para obtener datos más precisos de altura:")
+    print("   • Usar drones con GPS y barómetro")
+    print("   • Activar el GPS en smartphones antes de tomar la foto")
+    print("   • Usar aplicaciones especializadas que registren datos de sensores")
+    print("   • Verificar que los metadatos no hayan sido eliminados por redes sociales")
 def save_metadata_json(metadata, output_path):
     """
     Guarda los metadatos completos en un archivo JSON
