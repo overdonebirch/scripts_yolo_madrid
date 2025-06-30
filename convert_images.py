@@ -1,5 +1,5 @@
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import math
 import os
 import json
@@ -100,6 +100,71 @@ class CubemapBBoxConverter:
         
         return face_image
     
+    def draw_bboxes_on_face(self, face_image, face_index):
+        """
+        Dibuja bounding boxes en una cara específica del cubemap
+        
+        Args:
+            face_image: Imagen PIL de la cara
+            face_index: Índice de la cara (0-5)
+            
+        Returns:
+            Imagen PIL con bounding boxes dibujados
+        """
+        if face_index not in self.detections or len(self.detections[face_index]['boxes']) == 0:
+            return face_image
+        
+        # Crear copia para dibujar
+        face_with_boxes = face_image.copy()
+        draw = ImageDraw.Draw(face_with_boxes)
+        
+        # Colores para diferentes clases
+        colors = [
+            (255, 0, 0),    # Rojo
+            (0, 255, 0),    # Verde
+            (0, 0, 255),    # Azul
+            (255, 255, 0),  # Amarillo
+            (255, 0, 255),  # Magenta
+            (0, 255, 255),  # Cian
+        ]
+        
+        detection_data = self.detections[face_index]
+        
+        for i, bbox in enumerate(detection_data['boxes']):
+            x1, y1, x2, y2 = bbox
+            
+            # Obtener confianza y clase
+            score = detection_data['scores'][i] if len(detection_data['scores']) > i else 0.0
+            class_id = int(detection_data['classes'][i]) if len(detection_data['classes']) > i else 0
+            color = colors[class_id % len(colors)]
+            
+            # Dibujar rectángulo del bounding box
+            draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+            
+            # Dibujar texto con confianza
+            text = f"Tree: {score:.2f}"
+            
+            # Calcular posición del texto
+            text_x = x1
+            text_y = max(0, y1 - 25)  # Encima del bounding box
+            
+            # Dibujar fondo para el texto
+            try:
+                # Intentar usar una fuente por defecto
+                font = ImageFont.load_default()
+                text_bbox = draw.textbbox((text_x, text_y), text, font=font)
+            except:
+                # Si no hay fuente, usar coordenadas estimadas
+                text_bbox = (text_x, text_y, text_x + len(text) * 8, text_y + 15)
+            
+            # Fondo del texto
+            draw.rectangle(text_bbox, fill=(0, 0, 0, 128), outline=color)
+            
+            # Texto
+            draw.text((text_x, text_y), text, fill=color)
+        
+        return face_with_boxes
+    
     def convert_to_cubemap(self):
         """Convierte la imagen 360° a las 6 caras del cubemap"""
         if not self.load_image():
@@ -174,6 +239,35 @@ class CubemapBBoxConverter:
                     'masks': None
                 }
                 print(f"  - No se encontraron detecciones")
+    
+    def save_faces_with_detections(self):
+        """
+        Guarda cada cara del cubemap con sus bounding boxes dibujados
+        """
+        print("Guardando caras con detecciones...")
+        
+        face_names = ["front", "right", "back", "left", "up", "down"]
+        
+        for face_index in range(6):
+            face_name = face_names[face_index]
+            
+            # Cargar la imagen de la cara original
+            face_path = os.path.join(self.output_dir, f"{face_name}.jpg")
+            if not os.path.exists(face_path):
+                print(f"Warning: No se encuentra {face_path}")
+                continue
+            
+            face_image = Image.open(face_path)
+            
+            # Dibujar bounding boxes en la cara
+            face_with_boxes = self.draw_bboxes_on_face(face_image, face_index)
+            
+            # Guardar cara con detecciones
+            output_path = os.path.join(self.output_dir, f"{face_name}_with_detections.jpg")
+            face_with_boxes.save(output_path, quality=95)
+            
+            num_detections = len(self.detections.get(face_index, {}).get('boxes', []))
+            print(f"  - {face_name}_with_detections.jpg guardado ({num_detections} detecciones)")
     
     def transform_bbox_to_equirectangular(self, face_index, bbox):
         """
@@ -303,11 +397,11 @@ def main():
     """Función principal que ejecuta todo el pipeline"""
     
     # Configuración
-    input_image = "semaforo_dic2023.jpg"  # Tu imagen 360°
+    input_image = "calle_sanpedro_22.jpg"  # Tu imagen 360°
     model_path = "best.pt"  # Tu modelo YOLO
     output_directory = "cubemap_output"
     
-    print("=== Pipeline Completo: 360° → Cubemap → YOLO → Restauración ===\n")
+    print("=== Pipeline de Segmentos: 360° → Cubemap → YOLO → Segmentos Anotados ===\n")
     
     # Crear conversor
     converter = CubemapBBoxConverter(input_image, output_directory)
@@ -323,9 +417,9 @@ def main():
     print("\n2. Ejecutando detección YOLO en cada cara...")
     converter.run_yolo_detection(model_path, face_paths)
     
-    # Paso 3: Restaurar a formato equirectangular con detecciones
-    print("\n3. Restaurando imagen equirectangular con detecciones...")
-    converter.create_equirectangular_with_detections("resultado_final_con_detecciones.jpg")
+    # Paso 3: Guardar caras individuales con bounding boxes
+    print("\n3. Guardando caras individuales con bounding boxes...")
+    converter.save_faces_with_detections()
     
     # Paso 4: Guardar detecciones en JSON
     print("\n4. Guardando detecciones en JSON...")
@@ -333,9 +427,10 @@ def main():
     
     print(f"\n¡Pipeline completado! Revisa la carpeta: {output_directory}")
     print("Archivos generados:")
-    print("- 6 caras del cubemap (front.jpg, right.jpg, etc.)")
-    print("- resultado_final_con_detecciones.jpg (imagen 360° con bounding boxes)")
+    print("- 6 caras del cubemap SIN bounding boxes: front.jpg, right.jpg, back.jpg, left.jpg, up.jpg, down.jpg")
+    print("- 6 caras del cubemap CON bounding boxes: front_with_detections.jpg, right_with_detections.jpg, etc.")
     print("- detections.json (datos de todas las detecciones)")
+    print("\nNOTA: No se genera imagen 360° unificada - solo segmentos individuales")
 
 if __name__ == "__main__":
     main()
