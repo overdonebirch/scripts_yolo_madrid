@@ -1,17 +1,20 @@
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 import math
 import os
+import json
+from ultralytics import YOLO
+import cv2
 
-class CubemapConverter:
+class CubemapBBoxConverter:
     def __init__(self, input_image_path, output_dir="cubemap_output", cube_size=None):
         """
-        Inicializa el conversor de cubemap
+        Conversor de cubemap con soporte para bounding boxes
         
         Args:
             input_image_path: Ruta de la imagen 360° equirectangular
             output_dir: Directorio donde guardar las caras del cubo
-            cube_size: Tamaño de cada cara del cubo (si None, se calcula automáticamente)
+            cube_size: Tamaño de cada cara del cubo
         """
         self.input_path = input_image_path
         self.output_dir = output_dir
@@ -20,7 +23,9 @@ class CubemapConverter:
         self.height = 0
         self.cube_size = cube_size
         
-        # Crear directorio de salida si no existe
+        # Para almacenar detecciones de YOLO
+        self.detections = {}  # face_index -> detections
+        
         os.makedirs(output_dir, exist_ok=True)
         
     def load_image(self):
@@ -29,7 +34,6 @@ class CubemapConverter:
             self.image = Image.open(self.input_path)
             self.width, self.height = self.image.size
             
-            # Si no se especifica cube_size, usar 1/4 del ancho de la imagen
             if self.cube_size is None:
                 self.cube_size = self.width // 4
                 
@@ -42,22 +46,10 @@ class CubemapConverter:
         return True
     
     def equirectangular_to_cubemap_coord(self, face, i, j):
-        """
-        Convierte coordenadas del cubo a coordenadas esféricas equirectangulares
-        
-        Args:
-            face: Cara del cubo (0-5)
-            i, j: Coordenadas en la cara del cubo
-            
-        Returns:
-            x, y: Coordenadas en la imagen equirectangular
-        """
-        # Normalizar coordenadas de la cara del cubo a [-1, 1]
+        """Convierte coordenadas del cubo a coordenadas equirectangulares"""
         a = 2.0 * i / self.cube_size - 1.0
-        b = 1.0 - 2.0 * j / self.cube_size  # invertimos el eje vertical
-
+        b = 1.0 - 2.0 * j / self.cube_size
         
-        # Vectores 3D para cada cara del cubo (corregidos para orientación correcta)
         if face == 0:  # Frente (+Z)
             x, y, z = a, b, 1.0
         elif face == 1:  # Derecha (+X)
@@ -70,42 +62,40 @@ class CubemapConverter:
             x, y, z = a, 1.0, -b
         elif face == 5:  # Abajo (-Y)
             x, y, z = a, -1.0, b
-
         
-        # Convertir a coordenadas esféricas
-        theta = math.atan2(y, math.sqrt(x*x + z*z))  # Latitud
-        phi = math.atan2(x, z)  # Longitud
+        theta = math.atan2(y, math.sqrt(x*x + z*z))
+        phi = math.atan2(x, z)
         
-        # Convertir a coordenadas de imagen equirectangular
         img_x = (phi / math.pi + 1.0) * 0.5 * self.width
-        img_y = (0.5 - theta / math.pi) * self.height  # Invertir Y para corregir orientación
+        img_y = (0.5 - theta / math.pi) * self.height
         
-        # Asegurar que las coordenadas estén dentro de los límites
         img_x = max(0, min(self.width - 1, img_x))
         img_y = max(0, min(self.height - 1, img_y))
         
         return int(img_x), int(img_y)
     
-    def extract_face(self, face_index):
+    def cubemap_to_equirectangular_coord(self, face, cube_x, cube_y):
         """
-        Extrae una cara específica del cubo
+        Convierte coordenadas de una cara del cubo a coordenadas equirectangulares
         
         Args:
-            face_index: Índice de la cara (0-5)
+            face: Índice de la cara (0-5)
+            cube_x, cube_y: Coordenadas en la cara del cubo
             
         Returns:
-            PIL Image de la cara extraída
+            eq_x, eq_y: Coordenadas en imagen equirectangular
         """
+        return self.equirectangular_to_cubemap_coord(face, cube_x, cube_y)
+    
+    def extract_face(self, face_index):
+        """Extrae una cara específica del cubo"""
         face_image = Image.new('RGB', (self.cube_size, self.cube_size))
         face_pixels = face_image.load()
         source_pixels = self.image.load()
         
         for j in range(self.cube_size):
             for i in range(self.cube_size):
-                # Obtener coordenadas en la imagen original
                 src_x, src_y = self.equirectangular_to_cubemap_coord(face_index, i, j)
-                
-                # Copiar pixel
                 face_pixels[i, j] = source_pixels[src_x, src_y]
         
         return face_image
@@ -115,102 +105,237 @@ class CubemapConverter:
         if not self.load_image():
             return False
         
-        # Nombres de las caras
-        face_names = [
-            "front",    # +Z
-            "right",    # +X  
-            "back",     # -Z
-            "left",     # -X
-            "up",       # +Y
-            "down"      # -Y
-        ]
+        face_names = ["front", "right", "back", "left", "up", "down"]
+        face_paths = []
         
         print("Iniciando conversión a cubemap...")
         
         for face_index in range(6):
             print(f"Procesando cara {face_index + 1}/6: {face_names[face_index]}")
             
-            # Extraer la cara
             face_image = self.extract_face(face_index)
-            
-            # Guardar la cara
             filename = f"{face_names[face_index]}.jpg"
             filepath = os.path.join(self.output_dir, filename)
             face_image.save(filepath, quality=95)
+            face_paths.append(filepath)
             
             print(f"Guardado: {filepath}")
         
         print("¡Conversión completada!")
-        return True
+        return face_paths
     
-    def create_cross_layout(self):
-        """Crea un layout en cruz con todas las caras del cubemap"""
-        if not self.load_image():
+    def run_yolo_detection(self, model_path, face_paths):
+        """
+        Ejecuta detección YOLO en cada cara del cubemap
+        
+        Args:
+            model_path: Ruta al modelo YOLO
+            face_paths: Lista de rutas a las caras del cubemap
+        """
+        print("Iniciando detección YOLO en caras del cubemap...")
+        
+        model = YOLO(model_path)
+        
+        for face_index, face_path in enumerate(face_paths):
+            print(f"Detectando en cara {face_index}: {face_path}")
+            
+            # Ejecutar detección
+            results = model.predict(
+                source=face_path,
+                save=False,
+                save_txt=False,
+                verbose=False
+            )
+            
+            # Guardar detecciones para esta cara
+            if len(results) > 0 and results[0].boxes is not None:
+                boxes = results[0].boxes.xyxy.cpu().numpy()  # formato [x1, y1, x2, y2]
+                scores = results[0].boxes.conf.cpu().numpy()
+                classes = results[0].boxes.cls.cpu().numpy()
+                
+                # También obtener máscaras si están disponibles
+                masks = None
+                if hasattr(results[0], 'masks') and results[0].masks is not None:
+                    masks = results[0].masks.data.cpu().numpy()
+                
+                self.detections[face_index] = {
+                    'boxes': boxes,
+                    'scores': scores,
+                    'classes': classes,
+                    'masks': masks
+                }
+                
+                print(f"  - Encontradas {len(boxes)} detecciones")
+            else:
+                self.detections[face_index] = {
+                    'boxes': np.array([]),
+                    'scores': np.array([]),
+                    'classes': np.array([]),
+                    'masks': None
+                }
+                print(f"  - No se encontraron detecciones")
+    
+    def transform_bbox_to_equirectangular(self, face_index, bbox):
+        """
+        Transforma un bounding box de una cara del cubo a coordenadas equirectangulares
+        
+        Args:
+            face_index: Índice de la cara del cubo
+            bbox: [x1, y1, x2, y2] en coordenadas de la cara del cubo
+            
+        Returns:
+            Lista de puntos [(x, y)] que forman el contorno en coordenadas equirectangulares
+        """
+        x1, y1, x2, y2 = bbox
+        
+        # Crear puntos del perímetro del bounding box
+        perimeter_points = []
+        
+        # Borde superior (y1)
+        for x in range(int(x1), int(x2) + 1, max(1, int((x2-x1)/20))):
+            eq_x, eq_y = self.cubemap_to_equirectangular_coord(face_index, x, y1)
+            perimeter_points.append((eq_x, eq_y))
+        
+        # Borde derecho (x2)
+        for y in range(int(y1), int(y2) + 1, max(1, int((y2-y1)/20))):
+            eq_x, eq_y = self.cubemap_to_equirectangular_coord(face_index, x2, y)
+            perimeter_points.append((eq_x, eq_y))
+        
+        # Borde inferior (y2)
+        for x in range(int(x2), int(x1) - 1, -max(1, int((x2-x1)/20))):
+            eq_x, eq_y = self.cubemap_to_equirectangular_coord(face_index, x, y2)
+            perimeter_points.append((eq_x, eq_y))
+        
+        # Borde izquierdo (x1)
+        for y in range(int(y2), int(y1) - 1, -max(1, int((y2-y1)/20))):
+            eq_x, eq_y = self.cubemap_to_equirectangular_coord(face_index, x1, y)
+            perimeter_points.append((eq_x, eq_y))
+        
+        return perimeter_points
+    
+    def create_equirectangular_with_detections(self, output_path="output_with_detections.jpg"):
+        """
+        Crea imagen equirectangular original con bounding boxes superpuestos
+        
+        Args:
+            output_path: Ruta donde guardar la imagen final
+        """
+        if not self.image:
+            print("Error: Imagen no cargada")
             return False
         
-        # Crear imagen en formato cruz (4x3 caras)
-        cross_width = self.cube_size * 4
-        cross_height = self.cube_size * 3
-        cross_image = Image.new('RGB', (cross_width, cross_height), (0, 0, 0))
+        print("Creando imagen equirectangular con detecciones...")
         
-        # Layout en cruz:
-        #     [up]
-        # [left][front][right][back]
-        #     [down]
+        # Crear copia de la imagen original
+        result_image = self.image.copy()
+        draw = ImageDraw.Draw(result_image)
         
-        face_positions = [
-            (1, 1),  # front
-            (2, 1),  # right
-            (3, 1),  # back
-            (0, 1),  # left
-            (1, 0),  # up
-            (1, 2),  # down
+        # Colores para diferentes clases
+        colors = [
+            (255, 0, 0),    # Rojo
+            (0, 255, 0),    # Verde
+            (0, 0, 255),    # Azul
+            (255, 255, 0),  # Amarillo
+            (255, 0, 255),  # Magenta
+            (0, 255, 255),  # Cian
         ]
         
-        print("Creando layout en cruz...")
+        total_detections = 0
         
-        for face_index in range(6):
-            face_image = self.extract_face(face_index)
-            pos_x, pos_y = face_positions[face_index]
+        # Procesar detecciones de cada cara
+        for face_index, detection_data in self.detections.items():
+            if len(detection_data['boxes']) == 0:
+                continue
+                
+            face_names = ["front", "right", "back", "left", "up", "down"]
+            print(f"Procesando detecciones de cara {face_names[face_index]}...")
             
-            # Pegar la cara en la posición correcta
-            cross_image.paste(face_image, 
-                            (pos_x * self.cube_size, pos_y * self.cube_size))
+            for i, bbox in enumerate(detection_data['boxes']):
+                # Transformar bounding box a coordenadas equirectangulares
+                eq_points = self.transform_bbox_to_equirectangular(face_index, bbox)
+                
+                if len(eq_points) > 2:
+                    # Elegir color basado en la clase
+                    class_id = int(detection_data['classes'][i]) if len(detection_data['classes']) > i else 0
+                    color = colors[class_id % len(colors)]
+                    
+                    # Dibujar el contorno
+                    draw.polygon(eq_points, outline=color, width=3)
+                    
+                    # Agregar texto con la confianza
+                    if len(detection_data['scores']) > i:
+                        score = detection_data['scores'][i]
+                        # Encontrar el punto más alto para colocar el texto
+                        min_y_point = min(eq_points, key=lambda p: p[1])
+                        draw.text((min_y_point[0], min_y_point[1] - 20), 
+                                f"Tree: {score:.2f}", 
+                                fill=color)
+                    
+                    total_detections += 1
         
-        # Guardar layout en cruz
-        cross_path = os.path.join(self.output_dir, "cubemap_cross.jpg")
-        cross_image.save(cross_path, quality=95)
-        print(f"Layout en cruz guardado: {cross_path}")
+        # Guardar imagen resultado
+        output_full_path = os.path.join(self.output_dir, output_path)
+        result_image.save(output_full_path, quality=95)
         
+        print(f"Imagen con {total_detections} detecciones guardada en: {output_full_path}")
         return True
+    
+    def save_detections_json(self, output_path="detections.json"):
+        """Guarda las detecciones en formato JSON"""
+        detections_serializable = {}
+        
+        for face_index, detection_data in self.detections.items():
+            detections_serializable[face_index] = {
+                'boxes': detection_data['boxes'].tolist() if detection_data['boxes'].size > 0 else [],
+                'scores': detection_data['scores'].tolist() if detection_data['scores'].size > 0 else [],
+                'classes': detection_data['classes'].tolist() if detection_data['classes'].size > 0 else [],
+                'num_detections': len(detection_data['boxes'])
+            }
+        
+        json_path = os.path.join(self.output_dir, output_path)
+        with open(json_path, 'w') as f:
+            json.dump(detections_serializable, f, indent=2)
+        
+        print(f"Detecciones guardadas en: {json_path}")
+
 
 def main():
-    """Función principal de ejemplo"""
+    """Función principal que ejecuta todo el pipeline"""
+    
     # Configuración
-    input_image = "imagen_sigo.jpg"  # Cambia por la ruta de tu imagen
+    input_image = "semaforo_dic2023.jpg"  # Tu imagen 360°
+    model_path = "best.pt"  # Tu modelo YOLO
     output_directory = "cubemap_output"
     
+    print("=== Pipeline Completo: 360° → Cubemap → YOLO → Restauración ===\n")
+    
     # Crear conversor
-    converter = CubemapConverter(input_image, output_directory)
+    converter = CubemapBBoxConverter(input_image, output_directory)
     
-    print("=== Conversor de Imagen 360° a Cubemap ===\n")
-    
-    # Opción 1: Generar caras individuales
-    print("1. Generando caras individuales del cubemap...")
-    if converter.convert_to_cubemap():
-        print("✓ Caras individuales generadas correctamente\n")
-    else:
-        print("✗ Error al generar las caras individuales\n")
+    # Paso 1: Convertir a cubemap
+    print("1. Convertiendo imagen 360° a cubemap...")
+    face_paths = converter.convert_to_cubemap()
+    if not face_paths:
+        print("Error en la conversión a cubemap")
         return
     
-    # Opción 2: Generar layout en cruz
-    print("2. Generando layout en cruz...")
-    if converter.create_cross_layout():
-        print("✓ Layout en cruz generado correctamente\n")
-    else:
-        print("✗ Error al generar el layout en cruz\n")
+    # Paso 2: Ejecutar YOLO en cada cara
+    print("\n2. Ejecutando detección YOLO en cada cara...")
+    converter.run_yolo_detection(model_path, face_paths)
     
-    print("Proceso completado. Revisa la carpeta:", output_directory)
+    # Paso 3: Restaurar a formato equirectangular con detecciones
+    print("\n3. Restaurando imagen equirectangular con detecciones...")
+    converter.create_equirectangular_with_detections("resultado_final_con_detecciones.jpg")
+    
+    # Paso 4: Guardar detecciones en JSON
+    print("\n4. Guardando detecciones en JSON...")
+    converter.save_detections_json()
+    
+    print(f"\n¡Pipeline completado! Revisa la carpeta: {output_directory}")
+    print("Archivos generados:")
+    print("- 6 caras del cubemap (front.jpg, right.jpg, etc.)")
+    print("- resultado_final_con_detecciones.jpg (imagen 360° con bounding boxes)")
+    print("- detections.json (datos de todas las detecciones)")
 
 if __name__ == "__main__":
     main()
