@@ -1,0 +1,10 @@
+# Dependencias del proyecto
+numpy
+Pillow
+ultralytics
+opencv-python
+torch
+torchvision
+einops
+huggingface_hub
+wandb
