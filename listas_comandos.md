@@ -2,6 +2,10 @@
 
 exiftool "-GPSLatitude=40.4112325" "-GPSLongitude=-3.6948565" "-GPSLatitudeRef=N" "-GPSLongitudeRef=W" nombre_imagen.jpg
 
+## Convertir a cubemap
+
+python convert_images.py -i nombre_imagen.jpg -o cubemap_output -c 512
+
 ## Obtener azimuths
 
 python calculate_azimuths.py -i nombre_imagen.jpg -d cubemap_output/detections.json -o cubemap_output/azimuths.json
