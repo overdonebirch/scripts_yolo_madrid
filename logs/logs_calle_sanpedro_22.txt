@@ -1,0 +1,80 @@
+C:\Users\Alejandro\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py:3442: DecompressionBombWarning: Image size (134217728 pixels) exceeds limit of 89478485 pixels, could be decompression bomb DOS attack.
+  warnings.warn(
+=== Pipeline de Segmentos: 360° → Cubemap → YOLO → Segmentos Anotados ===
+
+1. Convertiendo imagen 360° a cubemap...
+Imagen cargada: 16384x8192
+Tamaño de cara del cubo: 4096x4096
+Iniciando conversión a cubemap...
+Procesando cara 1/6: front
+Guardado: outputs\output_calle_sanpedro_22\front.jpg
+Procesando cara 2/6: right
+Guardado: outputs\output_calle_sanpedro_22\right.jpg
+Procesando cara 3/6: back
+Guardado: outputs\output_calle_sanpedro_22\back.jpg
+Procesando cara 4/6: left
+Guardado: outputs\output_calle_sanpedro_22\left.jpg
+Procesando cara 5/6: up
+Guardado: outputs\output_calle_sanpedro_22\up.jpg
+Procesando cara 6/6: down
+Guardado: outputs\output_calle_sanpedro_22\down.jpg
+¡Conversión completada!
+
+2. Ejecutando detección YOLO en cada cara...
+Iniciando detección YOLO en caras del cubemap...
+Detectando en cara 0: outputs\output_calle_sanpedro_22\front.jpg
+  - Encontradas 0 detecciones
+Detectando en cara 1: outputs\output_calle_sanpedro_22\right.jpg
+  - Encontradas 0 detecciones
+Detectando en cara 2: outputs\output_calle_sanpedro_22\back.jpg
+  - Encontradas 2 detecciones
+Detectando en cara 3: outputs\output_calle_sanpedro_22\left.jpg
+  - Encontradas 1 detecciones
+Detectando en cara 4: outputs\output_calle_sanpedro_22\up.jpg
+  - Encontradas 0 detecciones
+Detectando en cara 5: outputs\output_calle_sanpedro_22\down.jpg
+  - Encontradas 3 detecciones
+
+3. Guardando caras individuales con bounding boxes...
+Guardando caras con detecciones...
+  - front_with_detections.jpg guardado (0 detecciones)
+  - right_with_detections.jpg guardado (0 detecciones)
+  - back_with_detections.jpg guardado (2 detecciones)
+  - left_with_detections.jpg guardado (1 detecciones)
+  - up_with_detections.jpg guardado (0 detecciones)
+  - down_with_detections.jpg guardado (3 detecciones)
+
+4. Guardando detecciones en JSON...
+Detecciones guardadas en: outputs\output_calle_sanpedro_22\detections.json
+
+¡Pipeline completado! Revisa la carpeta: outputs\output_calle_sanpedro_22
+Archivos generados:
+- 6 caras del cubemap SIN bounding boxes: front.jpg, right.jpg, back.jpg, left.jpg, up.jpg, down.jpg
+- 6 caras del cubemap CON bounding boxes: front_with_detections.jpg, right_with_detections.jpg, etc.
+- detections.json (datos de todas las detecciones)
+
+NOTA: No se genera imagen 360° unificada - solo segmentos individuales
+C:\Users\Alejandro\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py:3442: DecompressionBombWarning: Image size (134217728 pixels) exceeds limit of 89478485 pixels, could be decompression bomb DOS attack.
+  warnings.warn(
+Azimuths saved to outputs\output_calle_sanpedro_22\azimuths.json
+Using cache found in C:\Users\Alejandro/.cache\torch\hub\lpiccinelli-eth_UniDepth_main
+C:\Users\Alejandro\AppData\Local\Programs\Python\Python313\Lib\site-packages\timm\models\layers\__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+C:\Users\Alejandro/.cache\torch\hub\lpiccinelli-eth_UniDepth_main\unidepth\utils\chamfer_distance.py:9: UserWarning: !! To run evaluation you need KNN. Please compile KNN: `cd unidepth/ops/knn with && bash compile.sh`.
+  warnings.warn(
+C:\Users\Alejandro\AppData\Local\Programs\Python\Python313\Lib\site-packages\torch\amp\autocast_mode.py:266: UserWarning: User provided device_type of 'cuda', but CUDA is not available. Disabling
+  warnings.warn(
+xFormers not available
+xFormers not available
+C:\Users\Alejandro/.cache\torch\hub\lpiccinelli-eth_UniDepth_main\unidepth\models\unidepthv2\unidepthv2.py:262: UserWarning: !! self.resolution_level not set, using default bounds !!
+  warnings.warn("!! self.resolution_level not set, using default bounds !!")
+Cannot import NystromAttention, you can not run original UniDepth. UniDepthV2 is available.
+Not loading pretrained weights for backbone
+EdgeGuidedLocalSSI reverts to a non cuda-optimized operation, you will experince large slowdown, please install it:  `cd ./unidepth/ops/extract_patches && bash compile.sh`
+UniDepth_v2_vitl14 is loaded with:
+	 missing keys: []
+	 additional keys: []
+Saved distances (m) to outputs\output_calle_sanpedro_22\distances_unidepth.json
+C:\Users\Alejandro\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py:3442: DecompressionBombWarning: Image size (134217728 pixels) exceeds limit of 89478485 pixels, could be decompression bomb DOS attack.
+  warnings.warn(
+Saved coordinates to outputs\output_calle_sanpedro_22\coords.json

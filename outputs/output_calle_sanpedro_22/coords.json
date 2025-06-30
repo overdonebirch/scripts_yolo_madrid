@@ -1,0 +1,65 @@
+{
+  "front": [],
+  "right": [],
+  "back": [
+    {
+      "bbox_index": 0,
+      "class_id": 0.0,
+      "score": null,
+      "azimuth_deg": 172.73417483289492,
+      "distance_m": 19.962135314941406,
+      "latitude": 40.41105441776639,
+      "longitude": -3.6948266805010297
+    },
+    {
+      "bbox_index": 1,
+      "class_id": 3.0,
+      "score": null,
+      "azimuth_deg": 216.63929525544077,
+      "distance_m": 3.7352404594421387,
+      "latitude": 40.41120554563565,
+      "longitude": -3.694882828358645
+    }
+  ],
+  "left": [
+    {
+      "bbox_index": 0,
+      "class_id": 0.0,
+      "score": null,
+      "azimuth_deg": 296.5240991322692,
+      "distance_m": 6.043496131896973,
+      "latitude": 40.41125677149803,
+      "longitude": -3.6949203680580966
+    }
+  ],
+  "up": [],
+  "down": [
+    {
+      "bbox_index": 0,
+      "class_id": 2.0,
+      "score": null,
+      "azimuth_deg": 101.28604473415902,
+      "distance_m": 1.5230255126953125,
+      "latitude": 40.4112298194159,
+      "longitude": -3.6948388589581795
+    },
+    {
+      "bbox_index": 1,
+      "class_id": 2.0,
+      "score": null,
+      "azimuth_deg": 85.11604955628526,
+      "distance_m": 1.537762999534607,
+      "latitude": 40.411233677406614,
+      "longitude": -3.6948384029735966
+    },
+    {
+      "bbox_index": 2,
+      "class_id": 2.0,
+      "score": null,
+      "azimuth_deg": 219.80894515010147,
+      "distance_m": 2.71842622756958,
+      "latitude": 40.411213719911245,
+      "longitude": -3.6948770564158364
+    }
+  ]
+}

@@ -30,8 +30,12 @@ def main():
     parser.add_argument('--backbone', default='vitl14', help="Backbone UniDepth")
     parser.add_argument('--images-dir', default='imagenes', help="Directorio de imágenes 360°")
     parser.add_argument('--scripts-dir', default='scripts', help="Directorio de scripts Python")
-    parser.add_argument('--output-root', default='.', help="Directorio raíz de salida")
+    parser.add_argument('--output-root', default='outputs', help="Directorio raíz de salida (carpeta outputs)")
+    parser.add_argument('--logs-dir', default='logs', help="Directorio raíz de logs (carpeta logs)")
     args = parser.parse_args()
+    # Asegurar existencia de carpeta raíz de outputs
+    os.makedirs(args.output_root, exist_ok=True)
+    os.makedirs(args.logs_dir, exist_ok=True)
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 
@@ -54,6 +58,9 @@ def main():
         name = os.path.splitext(os.path.basename(img))[0]
         out_dir = os.path.join(args.output_root, f"output_{name}")
         os.makedirs(out_dir, exist_ok=True)
+        # Abrir log de la imagen
+        log_path = os.path.join(args.logs_dir, f"logs_{name}.txt")
+        log_f = open(log_path, 'w')
         logging.info(f"Procesando {img} → {out_dir}")
 
         # 1. Cubemap
@@ -62,7 +69,7 @@ def main():
         if args.cube_size:
             cmd1 += ['-c', str(args.cube_size)]
         try:
-            subprocess.run(cmd1, check=True)
+            subprocess.run(cmd1, check=True, stdout=log_f, stderr=log_f)
         except subprocess.CalledProcessError as e:
             logging.error(f"Error en convert_images.py: {e}")
             continue
@@ -73,7 +80,7 @@ def main():
         cmd2 = [sys.executable, os.path.join(args.scripts_dir,'calculate_azimuths.py'),
                 '-i', img, '-d', det_json, '-o', az_out]
         try:
-            subprocess.run(cmd2, check=True)
+            subprocess.run(cmd2, check=True, stdout=log_f, stderr=log_f)
         except subprocess.CalledProcessError as e:
             logging.error(f"Error en calculate_azimuths.py: {e}")
             continue
@@ -84,7 +91,7 @@ def main():
                 '-d', det_json, '-f', out_dir, '-o', dist_out,
                 '--version', args.version, '--backbone', args.backbone]
         try:
-            subprocess.run(cmd3, check=True)
+            subprocess.run(cmd3, check=True, stdout=log_f, stderr=log_f)
         except subprocess.CalledProcessError as e:
             logging.error(f"Error en estimate_distances_unidepth.py: {e}")
             continue
@@ -94,11 +101,12 @@ def main():
         cmd4 = [sys.executable, os.path.join(args.scripts_dir,'compute_geo_coords.py'),
                 '-i', img, '-a', az_out, '-d', dist_out, '-o', coords_out]
         try:
-            subprocess.run(cmd4, check=True)
+            subprocess.run(cmd4, check=True, stdout=log_f, stderr=log_f)
         except subprocess.CalledProcessError:
             logging.warning(f"Sin EXIF GPS en {img}, se omiten coords")
         except Exception as e:
             logging.error(f"Error en compute_geo_coords.py: {e}")
+        log_f.close()
 
     logging.info("Pipeline finalizado.")
 

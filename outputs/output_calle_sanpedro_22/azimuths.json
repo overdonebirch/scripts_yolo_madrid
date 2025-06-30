@@ -1,0 +1,41 @@
+{
+  "front": [],
+  "right": [],
+  "back": [
+    {
+      "bbox_index": 0,
+      "class_id": 0.0,
+      "azimuth_deg": 172.73417483289492
+    },
+    {
+      "bbox_index": 1,
+      "class_id": 3.0,
+      "azimuth_deg": 216.63929525544077
+    }
+  ],
+  "left": [
+    {
+      "bbox_index": 0,
+      "class_id": 0.0,
+      "azimuth_deg": 296.5240991322692
+    }
+  ],
+  "up": [],
+  "down": [
+    {
+      "bbox_index": 0,
+      "class_id": 2.0,
+      "azimuth_deg": 101.28604473415902
+    },
+    {
+      "bbox_index": 1,
+      "class_id": 2.0,
+      "azimuth_deg": 85.11604955628526
+    },
+    {
+      "bbox_index": 2,
+      "class_id": 2.0,
+      "azimuth_deg": 219.80894515010147
+    }
+  ]
+}
