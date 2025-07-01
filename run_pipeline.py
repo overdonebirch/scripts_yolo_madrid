@@ -86,14 +86,14 @@ def main():
             continue
 
         # 3. Distancias
-        dist_out = os.path.join(out_dir, 'distances_unidepth.json')
-        cmd3 = [sys.executable, os.path.join(args.scripts_dir,'estimate_distances_unidepth.py'),
+        dist_out = os.path.join(out_dir, 'distances.json')
+        cmd3 = [sys.executable, os.path.join(args.scripts_dir,'estimate_distances.py'),
                 '-d', det_json, '-f', out_dir, '-o', dist_out,
                 '--version', args.version, '--backbone', args.backbone]
         try:
             subprocess.run(cmd3, check=True, stdout=log_f, stderr=log_f)
         except subprocess.CalledProcessError as e:
-            logging.error(f"Error en estimate_distances_unidepth.py: {e}")
+            logging.error(f"Error en estimate_distances.py: {e}")
             continue
 
         # 4. Coordenadas GPS
