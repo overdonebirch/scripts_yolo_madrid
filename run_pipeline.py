@@ -65,7 +65,7 @@ def main():
 
         # 1. Cubemap
         cmd1 = [sys.executable, os.path.join(args.scripts_dir,'convert_images.py'),
-                '-i', img, '-m', args.model, '-o', out_dir]
+                '-i', img, '-o', out_dir]
         if args.cube_size:
             cmd1 += ['-c', str(args.cube_size)]
         try:
@@ -74,7 +74,16 @@ def main():
             logging.error(f"Error en convert_images.py: {e}")
             continue
 
-        # 2. Azimuths
+                # 2. Detección YOLO en caras del cubemap
+        cmd_detect = [sys.executable, os.path.join(args.scripts_dir,'analyze_faces.py'),
+                '-f', out_dir, '-m', args.model]
+        try:
+            subprocess.run(cmd_detect, check=True, stdout=log_f, stderr=log_f)
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error en analyze_faces.py: {e}")
+            continue
+
+        # 3. Azimuths
         det_json = os.path.join(out_dir, 'detections.json')
         az_out = os.path.join(out_dir, 'azimuths.json')
         cmd2 = [sys.executable, os.path.join(args.scripts_dir,'calculate_azimuths.py'),
@@ -85,7 +94,7 @@ def main():
             logging.error(f"Error en calculate_azimuths.py: {e}")
             continue
 
-        # 3. Distancias
+                # 4. Distancias
         dist_out = os.path.join(out_dir, 'distances.json')
         cmd3 = [sys.executable, os.path.join(args.scripts_dir,'estimate_distances.py'),
                 '-d', det_json, '-f', out_dir, '-o', dist_out,
@@ -96,7 +105,7 @@ def main():
             logging.error(f"Error en estimate_distances.py: {e}")
             continue
 
-        # 4. Coordenadas GPS
+                # 5. Coordenadas GPS
         coords_out = os.path.join(out_dir, 'coords.json')
         cmd4 = [sys.executable, os.path.join(args.scripts_dir,'compute_geo_coords.py'),
                 '-i', img, '-a', az_out, '-d', dist_out, '-o', coords_out]
