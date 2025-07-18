@@ -41,7 +41,7 @@ def main():
         face_path = os.path.join(faces_dir, face_file)
         if not os.path.isfile(face_path):
             print(f"Warning: no se encontró {face_path}")
-            detections[idx] = {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+            detections[face_name] = {"boxes": [], "num_detections": 0}
             continue
 
         print(f"Procesando cara {idx}: {face_file}")
@@ -55,22 +55,30 @@ def main():
             scores = np.array([])
             classes = np.array([])
 
-        detections[idx] = {
-            "boxes": boxes.tolist(),
-            "scores": scores.tolist(),
-            "classes": classes.tolist(),
+        # Crear lista de boxes con scores y classes incluidos
+        boxes_with_data = []
+        for i in range(len(boxes)):
+            box_data = {
+                "coordinates": boxes[i].tolist(),
+                "score": float(scores[i]),
+                "class": int(classes[i])
+            }
+            boxes_with_data.append(box_data)
+        
+        detections[face_name] = {
+            "boxes": boxes_with_data,
             "num_detections": int(len(boxes))
         }
 
         # Dibujar y guardar imagen con detecciones
-        if boxes.size > 0:
+        if len(boxes_with_data) > 0:
             img = Image.open(face_path)
             draw = ImageDraw.Draw(img)
             font = ImageFont.load_default()
-            for i, box in enumerate(boxes):
-                x1, y1, x2, y2 = box
-                cls = int(classes[i]) if i < len(classes) else 0
-                score = float(scores[i]) if i < len(scores) else 0.0
+            for box_data in boxes_with_data:
+                x1, y1, x2, y2 = box_data["coordinates"]
+                cls = box_data["class"]
+                score = box_data["score"]
                 color = colors[cls % len(colors)]
                 draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
                 text = f"{cls}: {score:.2f}"
